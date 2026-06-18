@@ -8,6 +8,7 @@ projection (X-Z, where X=AP forward and Z=vertical up) for joint angles.
 from __future__ import annotations
 import numpy as np
 import pandas as pd
+from scipy.signal import butter, filtfilt
 
 # ============================================================================
 # Loading and gap-filling
@@ -27,6 +28,113 @@ def fill_gaps(df, marker_names, max_gap=20):
             out[col] = out[col].interpolate(method='linear', limit=max_gap,
                                              limit_direction='both')
     return out
+
+
+def _continuous_segments(valid: np.ndarray) -> list[tuple[int, int]]:
+    """Return (start, end_exclusive) index pairs for contiguous True runs."""
+    segments: list[tuple[int, int]] = []
+    start: int | None = None
+    for i, ok in enumerate(valid):
+        if ok and start is None:
+            start = i
+        elif not ok and start is not None:
+            segments.append((start, i))
+            start = None
+    if start is not None:
+        segments.append((start, len(valid)))
+    return segments
+
+
+def reject_marker_spikes(df: pd.DataFrame, markers: list[str],
+                         threshold_mm_per_frame: float = 100.0
+                         ) -> tuple[pd.DataFrame, dict[str, int]]:
+    """
+    Detect frame-to-frame 3D jumps exceeding threshold_mm_per_frame.
+    NaN both frames of each spike pair so fill_gaps can re-interpolate.
+    """
+    out = df.copy()
+    report = {m: 0 for m in markers}
+    any_removed = False
+
+    for m in markers:
+        cols = [f'{m}_x', f'{m}_y', f'{m}_z']
+        if not all(c in out.columns for c in cols):
+            continue
+        pos = out[cols].to_numpy(dtype=float)
+        n = len(pos)
+        for i in range(n - 1):
+            if np.any(np.isnan(pos[i])) or np.any(np.isnan(pos[i + 1])):
+                continue
+            d = float(np.linalg.norm(pos[i + 1] - pos[i]))
+            if d > threshold_mm_per_frame:
+                out.loc[out.index[i], cols] = np.nan
+                out.loc[out.index[i + 1], cols] = np.nan
+                pos[i] = np.nan
+                pos[i + 1] = np.nan
+                report[m] += 1
+                any_removed = True
+
+    if any_removed:
+        total = sum(report.values())
+        parts = ', '.join(f'{k}:{v}' for k, v in report.items() if v > 0)
+        print(f"reject_marker_spikes: removed {total} spike(s) ({parts})")
+
+    return out, report
+
+
+def butterworth_filter(df: pd.DataFrame, markers: list[str],
+                       cutoff_hz: float = 6.0, order: int = 4,
+                       fs: float = 100.0) -> pd.DataFrame:
+    """
+    Zero-lag 4th-order Butterworth low-pass (filtfilt) per marker axis.
+    Filters each continuous non-NaN segment separately.
+    """
+    out = df.copy()
+    nyq = fs / 2.0
+    wn = cutoff_hz / nyq
+    if wn <= 0 or wn >= 1.0:
+        return out
+
+    b, a = butter(order, wn, btype='low')
+    padlen = 3 * max(len(a), len(b))
+
+    for m in markers:
+        for axis in ('x', 'y', 'z'):
+            col = f'{m}_{axis}'
+            if col not in out.columns:
+                continue
+            arr = out[col].to_numpy(dtype=float)
+            valid = ~np.isnan(arr)
+            for start, end in _continuous_segments(valid):
+                seg = arr[start:end]
+                if len(seg) <= padlen:
+                    continue
+                try:
+                    arr[start:end] = filtfilt(b, a, seg)
+                except ValueError:
+                    pass
+            out[col] = arr
+    return out
+
+
+def preprocess_markers(df: pd.DataFrame, markers: list[str], *,
+                       spike_threshold_mm_per_frame: float = 100.0,
+                       filter_cutoff_hz: float | None = 6.0,
+                       fs: float = 100.0, max_gap: int = 100,
+                       reconstruct_pelvis: bool = True
+                       ) -> tuple[pd.DataFrame, dict[str, int]]:
+    """
+    Tier-1 preprocessing: spike rejection → gap fill → pelvis recon → Butterworth.
+    """
+    out, spike_report = reject_marker_spikes(
+        df, markers, threshold_mm_per_frame=spike_threshold_mm_per_frame)
+    out = fill_gaps(out, markers, max_gap=max_gap)
+    if reconstruct_pelvis:
+        out = reconstruct_pelvis_markers(out)
+    if filter_cutoff_hz is not None and filter_cutoff_hz > 0:
+        out = butterworth_filter(out, markers, cutoff_hz=filter_cutoff_hz,
+                                 order=4, fs=fs)
+    return out, spike_report
 
 
 def normalize_walking_direction(df: pd.DataFrame) -> pd.DataFrame:
@@ -449,14 +557,15 @@ def process_stride(df, side, leg_length_mm, hs_start, hs_end,
     return result
 
 def process_trial(csv_path, stride_records, subject_id, trial,
-                  leg_length_mm, fs=100.0):
+                  leg_length_mm, fs=100.0,
+                  spike_threshold_mm_per_frame: float = 100.0,
+                  filter_cutoff_hz: float | None = 6.0):
     df = load_marker_csv(csv_path)
-    # 1. Normalize walking direction so subject always walks +X
     df = normalize_walking_direction(df)
-    # 2. Fill small gaps via linear interpolation (up to 100 frames for marker dropouts)
-    df = fill_gaps(df, PIG_LOWER_MARKERS, max_gap=100)
-    # 3. Reconstruct any still-missing pelvis markers via rigid-body assumption
-    df = reconstruct_pelvis_markers(df)
+    df, spike_report = preprocess_markers(
+        df, PIG_LOWER_MARKERS,
+        spike_threshold_mm_per_frame=spike_threshold_mm_per_frame,
+        filter_cutoff_hz=filter_cutoff_hz, fs=fs, max_gap=100)
     summary_rows = []
     curves = {}
     sub = stride_records[(stride_records['subject_id']==subject_id) &
@@ -474,4 +583,4 @@ def process_trial(csv_path, stride_records, subject_id, trial,
                'leg_length_mm': leg_length_mm}
         row.update({k: v for k, v in res.items() if not k.endswith('_norm')})
         summary_rows.append(row)
-    return pd.DataFrame(summary_rows), curves
+    return pd.DataFrame(summary_rows), curves, spike_report

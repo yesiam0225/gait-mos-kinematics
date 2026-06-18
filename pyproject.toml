@@ -12,12 +12,20 @@ license = { text = "MIT" }
 dependencies = [
     "numpy>=1.20",
     "pandas>=1.3",
+    "matplotlib>=3.5",
+    "scipy>=1.7",
+    "scikit-learn>=1.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
 
 [project.scripts]
 batch-kinematics-ensemble = "gait_mos_kinematics.batch_kinematics_ensemble:main"
+batch-kinematics-peaks = "gait_mos_kinematics.batch_kinematics_peaks:main"
 batch-mos = "gait_mos_kinematics.batch_mos:main"
 batch-mos-timeseries = "gait_mos_kinematics.batch_mos_timeseries:main"
+plot-ensemble-kinematics = "gait_mos_kinematics.plot_ensemble_kinematics:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gait_mos_kinematics"]

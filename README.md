@@ -5,12 +5,12 @@ Python tools for **sagittal-plane joint kinematics** and **margin of stability (
 ## Installation
 
 ```bash
-git clone git@github.com:yesiam0225/gait-mos-kinematics.git
+git clone https://github.com/gait-mos-kinematics/gait-mos-kinematics.git
 cd gait-mos-kinematics
 pip install -e .
 ```
 
-This installs the `gait_mos_kinematics` package and three batch CLI commands.
+This installs the `gait_mos_kinematics` package and five CLI commands (`batch-kinematics-ensemble`, `batch-kinematics-peaks`, `batch-mos`, `batch-mos-timeseries`, `plot-ensemble-kinematics`).
 
 ## Requirements
 
@@ -27,7 +27,69 @@ Batch scripts expect:
 | `per_stride_data.csv` | Per-stride events from spatiotemporal pipeline: `hs_start_frame`, `hs_end_frame`, `to_frame`, `phase`, `side`, `step_length_mm`, … |
 | Corrected marker CSVs | Full-body PiG marker trials (mm, 100 Hz) referenced by `csv_path` |
 
-Trial CSV paths in the manifest may use spaces (`BBA01 Trial 05_corrected.csv`) or underscores; the batch scripts resolve multiple naming conventions automatically.
+Trial CSV paths in the manifest may use spaces (`SUBJ01 Trial 05_corrected.csv`) or underscores; the batch scripts resolve multiple naming conventions automatically.
+
+Frame indices in `per_stride_data.csv` (`hs_start_frame`, `hs_end_frame`, `to_frame`, …) are **0-based row indices** into the trial CSV referenced by `csv_path`.
+
+## End-to-end pipeline
+
+This repo is the **kinematics + MoS stage** after [gait-spatiotemporal](https://github.com/gait-spatiotemporal/gait-spatiotemporal) and [marker-label](https://github.com/marker-label/marker-label):
+
+```text
+marker-label (gap-filled CSV + manifest)
+    → gait-spatiotemporal (per_stride_data.csv, per_step_data.csv)
+    → gait-mos-kinematics (this repo: ensemble, peaks, MoS)
+```
+
+[marker-label](https://github.com/marker-label/marker-label) also ships an in-repo **`gait_analysis/`** module with the same MoS/kinematics batch scripts plus `visualize_mos.py` QC plots. Use **this package** for portable installs and joint peak CSVs; use marker-label `gait_analysis/` when you want MoS figure batching in the same repo as corrected trials.
+
+### Main cohort example
+
+```bash
+# After spatiotemporal-gait on corrected/obs_trials_gap_filled.csv
+batch-kinematics-ensemble \
+  --obs-csv corrected/obs_trials_gap_filled.csv \
+  --ps-csv gait_spatiotemporal_out/per_stride_data.csv \
+  --trial-dir corrected/gap_filled_full_body \
+  --output-dir output/gait_mos_kinematics/ensemble_curves
+
+batch-kinematics-peaks \
+  --obs-csv corrected/obs_trials_gap_filled.csv \
+  --ps-csv gait_spatiotemporal_out/per_stride_data.csv \
+  --trial-dir corrected/gap_filled_full_body \
+  --output-dir output/gait_mos_kinematics/peaks
+
+batch-mos \
+  --obs-csv corrected/obs_trials_gap_filled.csv \
+  --ps-csv gait_spatiotemporal_out/per_stride_data.csv \
+  --trial-dir corrected/gap_filled_full_body \
+  --output-dir output/gait_mos_kinematics/mos
+
+batch-mos-timeseries \
+  --obs-csv corrected/obs_trials_gap_filled.csv \
+  --ps-csv gait_spatiotemporal_out/per_stride_data.csv \
+  --trial-dir corrected/gap_filled_full_body \
+  --output-dir output/gait_mos_kinematics/mos_timeseries
+```
+
+### Extra / added cohort example
+
+Additional gap-filled trials (manifest `corrected/added/extra_obs_trials.csv`, spatiotemporal output under `gait_spatiotemporal_out/extra/`):
+
+```bash
+batch-kinematics-peaks \
+  --obs-csv corrected/added/extra_obs_trials.csv \
+  --ps-csv gait_spatiotemporal_out/extra/per_stride_data.csv \
+  --trial-dir . \
+  --output-dir output/gait_mos_kinematics_extra/peaks
+
+batch-kinematics-ensemble \
+  --obs-csv corrected/added/extra_obs_trials.csv \
+  --ps-csv gait_spatiotemporal_out/extra/per_stride_data.csv \
+  --trial-dir . \
+  --output-dir output/gait_mos_kinematics_extra/ensemble_curves
+# also writes output/gait_mos_kinematics_extra/peaks/peaks_per_stride.csv
+```
 
 ## Command-line tools
 
@@ -43,7 +105,36 @@ batch-kinematics-ensemble \
   --output-dir path/to/output/ensemble_curves/
 ```
 
-Optional: `--filter-trials BBA01:5,BBA01:23` to process a subset.
+Optional: `--filter-trials SUBJ01:5,SUBJ01:23` to process a subset.
+
+Also writes **`../peaks/peaks_per_stride.csv`** and **`peaks_subject_condition.csv`** relative to `--output-dir` (e.g. `ensemble_curves/` → sibling `peaks/`). These peaks include tier-2 Mahalanobis outlier rejection when enabled via CLI flags.
+
+### Joint angle peaks (discrete outcomes)
+
+Per-stride max/min angle peaks and gait-cycle timing (`*_peak_flexion`, `*_peak_extension`, `*_pct`, `*_rom`):
+
+```bash
+batch-kinematics-peaks \
+  --obs-csv path/to/obs_trials_gap_filled.csv \
+  --ps-csv path/to/per_stride_data.csv \
+  --trial-dir path/to/marker-label/ \
+  --output-dir path/to/output/peaks/
+```
+
+Outputs: `kinematics_all_strides.csv`, `kinematics_subject_condition.csv`. Use this when you want peaks only (no ensemble CSVs). For ensemble + filtered peaks in one run, prefer **`batch-kinematics-ensemble`** above.
+
+### Ensemble plots (mean ± SD)
+
+One PNG per ensemble CSV (solid mean, shaded ±1 SD across subjects):
+
+```bash
+plot-ensemble-kinematics \
+  --ensemble-dir path/to/output/ensemble_curves/ \
+  --output-dir path/to/output/ensemble_plots/ \
+  --group-cols board,time
+```
+
+Optional: `--by-side-plots` for separate left/right figures.
 
 ### MoS at gait events
 
@@ -72,6 +163,15 @@ batch-mos-timeseries \
   --output-dir path/to/output/mos_timeseries/
 ```
 
+### MoS clearance (Beerse et al.)
+
+`batch-mos` adds clearance columns derived from spatiotemporal step parameters at heel strike:
+
+- **AP clearance** = `step_length_mm − mos_ap_HS` (positive → foot anterior to extrapolated COM)
+- **ML clearance** = `step_width_mm − mos_ml_HS`
+
+NaN when `step_length_mm` / `step_width_mm` is NaN (e.g. first IC in trial has no prior opposite-foot contact in `per_step_data.csv`).
+
 ## Python API
 
 ```python
@@ -81,17 +181,17 @@ import pandas as pd
 strides = pd.read_csv("per_stride_data.csv")
 
 summary, curves = process_trial(
-    "BBA01_Trial_05_corrected.csv",
+    "SUBJ01_Trial_05_corrected.csv",
     strides,
-    subject_id="BBA01",
+    subject_id="SUBJ01",
     trial=5,
     leg_length_mm=850.0,
 )
 
 mos_df = process_trial_mos(
-    "BBA01_Trial_05_corrected.csv",
+    "SUBJ01_Trial_05_corrected.csv",
     strides,
-    subject_id="BBA01",
+    subject_id="SUBJ01",
     trial=5,
     leg_length_mm=850.0,
     height_mm=1700.0,
@@ -110,8 +210,13 @@ mos_df = process_trial_mos(
 
 ## Related projects
 
-- [gait-spatiotemporal](https://github.com/yesiam0225/gait-spatiotemporal) — gait event detection and spatiotemporal parameters (produces `per_stride_data.csv`)
-- [marker-label](https://github.com/yesiam0225/marker-label) — marker labeling and corrected trial CSVs
+| Repository | Role |
+|------------|------|
+| [marker-label](https://github.com/marker-label/marker-label) | Marker labeling, gap fill, trial manifests, in-repo `gait_analysis/` MoS QC |
+| [gait-spatiotemporal](https://github.com/gait-spatiotemporal/gait-spatiotemporal) | IC/TO detection → `per_stride_data.csv`, `per_step_data.csv` |
+| [gait-events-vlm](https://github.com/gait-events-vlm/gait-events-vlm) | VLM-based IC/TO from foot-Z plots (QC / comparison) |
+
+Full batch workflow and output layout: [marker-label — Downstream gait analysis](https://github.com/marker-label/marker-label#downstream-gait-analysis).
 
 ## License
 

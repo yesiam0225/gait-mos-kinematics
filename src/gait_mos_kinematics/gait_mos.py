@@ -25,8 +25,8 @@ import pandas as pd
 
 # Reuse loading helpers from kinematics module
 from .gait_kinematics import (
-    load_marker_csv, fill_gaps, get_marker_3d, normalize_walking_direction,
-    reconstruct_pelvis_markers, compute_hjc, PIG_LOWER_MARKERS
+    load_marker_csv, get_marker_3d, normalize_walking_direction,
+    preprocess_markers, compute_hjc, PIG_LOWER_MARKERS
 )
 
 G = 9.81  # m/s^2
@@ -389,7 +389,10 @@ def process_stride_mos(df: pd.DataFrame, com: np.ndarray, xcom: np.ndarray,
 def process_trial_mos(csv_path: str, stride_records: pd.DataFrame,
                        subject_id: str, trial: int,
                        leg_length_mm: float, height_mm: float,
-                       fs: float = 100.0) -> pd.DataFrame:
+                       fs: float = 100.0,
+                       spike_threshold_mm_per_frame: float = 100.0,
+                       filter_cutoff_hz: float | None = 6.0
+                       ) -> tuple[pd.DataFrame, dict[str, int]]:
     """
     Process all strides in one trial for MoS analysis.
     Returns a DataFrame with one row per stride, containing MoS values at
@@ -402,8 +405,10 @@ def process_trial_mos(csv_path: str, stride_records: pd.DataFrame,
     """
     df = load_marker_csv(csv_path)
     df = normalize_walking_direction(df)
-    df = fill_gaps(df, ALL_BODY_MARKERS, max_gap=100)
-    df = reconstruct_pelvis_markers(df)
+    df, spike_report = preprocess_markers(
+        df, ALL_BODY_MARKERS,
+        spike_threshold_mm_per_frame=spike_threshold_mm_per_frame,
+        filter_cutoff_hz=filter_cutoff_hz, fs=fs, max_gap=100)
     
     com  = compute_whole_body_com(df, leg_length_mm)
     v    = compute_com_velocity(com, fs)
@@ -437,8 +442,14 @@ def process_trial_mos(csv_path: str, stride_records: pd.DataFrame,
             cs = dict(cross_frame=np.nan, cross_speed_3d=np.nan,
                       cross_vx=np.nan, cross_vy=np.nan, cross_vz=np.nan)
         res.update(cs)
-        res['cross_speed_3d_norm'] = (cs['cross_speed_3d'] / height_mm 
-                                       if not np.isnan(cs['cross_speed_3d']) else np.nan)
+        # Froude-normalized COM crossing speed: v* = v / sqrt(g * L)
+        # (same convention as gait_speed_norm in gait-spatiotemporal)
+        leg_length_m = leg_length_mm / 1000.0
+        if not np.isnan(cs['cross_speed_3d']):
+            cross_speed_m_s = cs['cross_speed_3d'] / 1000.0
+            res['cross_speed_3d_norm'] = cross_speed_m_s / np.sqrt(G * leg_length_m)
+        else:
+            res['cross_speed_3d_norm'] = np.nan
         
         # AP/ML clearance — per Beerse et al. (2024):
         #   AP clearance = step_length - AP MoS  (positive = foot anterior to MoS)
@@ -477,4 +488,4 @@ def process_trial_mos(csv_path: str, stride_records: pd.DataFrame,
         row.update(res)
         summary.append(row)
     
-    return pd.DataFrame(summary)
+    return pd.DataFrame(summary), spike_report

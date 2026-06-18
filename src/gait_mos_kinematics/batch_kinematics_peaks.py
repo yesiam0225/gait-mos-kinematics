@@ -1,32 +1,36 @@
 """
-batch_mos.py — Batch MoS analysis with subject × condition aggregation.
+batch_kinematics_peaks.py — Export per-stride joint angle peaks and timings.
 """
 
 from __future__ import annotations
+
 import argparse
 from pathlib import Path
+
 import pandas as pd
 
-from . import gait_mos as gm
+from . import gait_kinematics as gk
+from .batch_kinematics_ensemble import resolve_trial_csv
 from .cli_outliers import (
     add_tier1_args, tier1_config_from_args, new_outlier_report,
     record_trial_spikes, save_outlier_report, print_outlier_summary,
 )
 
+META_COLS = [
+    'subject_id', 'group', 'board', 'time', 'trial',
+    'side', 'phase', 'stride_idx_in_trial',
+    'hs_start_frame', 'hs_end_frame', 'leg_length_mm',
+]
 
-def resolve_trial_csv(trial_dir: Path, csv_path_field: str) -> Path | None:
-    candidates = [
-        trial_dir / csv_path_field,
-        trial_dir / csv_path_field.replace('corrected/', ''),
-        trial_dir / csv_path_field.replace(' ', '_'),
-        trial_dir / csv_path_field.replace(' ', '_').replace('corrected/', ''),
-        trial_dir / Path(csv_path_field).name,
-        trial_dir / Path(csv_path_field).name.replace(' ', '_'),
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    return None
+ANGLE_PEAK_COLS = []
+for joint in ('hip', 'knee', 'ankle'):
+    ANGLE_PEAK_COLS.extend([
+        f'{joint}_peak_flexion',
+        f'{joint}_peak_flexion_pct',
+        f'{joint}_peak_extension',
+        f'{joint}_peak_extension_pct',
+        f'{joint}_rom',
+    ])
 
 
 def batch_process(obs_csv: Path, ps_csv: Path, trial_dir: Path,
@@ -44,16 +48,17 @@ def batch_process(obs_csv: Path, ps_csv: Path, trial_dir: Path,
 
     if filter_trials is not None:
         obs = obs[obs.apply(
-            lambda r: (r['subject_id'], int(r['trial'])) in filter_trials, axis=1)].copy()
+            lambda r: (r['subject_id'], int(r['trial'])) in filter_trials, axis=1
+        )].copy()
         if verbose:
             print(f"Filtered to {len(obs)} trials")
 
-    all_strides = []
+    all_strides: list[pd.DataFrame] = []
     n_found = n_missing = n_errors = 0
 
     for i, trial_row in obs.iterrows():
         if verbose and (i % 50 == 0 or len(obs) <= 20):
-            print(f"  [{i+1}/{len(obs)}] {trial_row['subject_id']} "
+            print(f"  [{i + 1}/{len(obs)}] {trial_row['subject_id']} "
                   f"T{trial_row['trial']}")
 
         trial_csv = resolve_trial_csv(trial_dir, trial_row['csv_path'])
@@ -63,21 +68,23 @@ def batch_process(obs_csv: Path, ps_csv: Path, trial_dir: Path,
         n_found += 1
 
         try:
-            mos_df, spike_report = gm.process_trial_mos(
+            summary, _, spike_report = gk.process_trial(
                 str(trial_csv), ps,
                 trial_row['subject_id'], int(trial_row['trial']),
-                float(trial_row['leg_length_mm']),
-                float(trial_row['height_mm']),
+                leg_length_mm=float(trial_row['leg_length_mm']),
                 spike_threshold_mm_per_frame=tier1['spike_threshold_mm_per_frame'],
                 filter_cutoff_hz=tier1['filter_cutoff_hz'],
             )
             record_trial_spikes(
                 outlier_report, trial_row['subject_id'], int(trial_row['trial']),
                 spike_report)
-            mos_df['group'] = trial_row['group']
-            mos_df['board'] = trial_row['board']
-            mos_df['time'] = trial_row['time']
-            all_strides.append(mos_df)
+            if summary.empty:
+                continue
+            summary = summary[summary['phase'] != 'unknown'].copy()
+            summary['group'] = trial_row['group']
+            summary['board'] = trial_row['board']
+            summary['time'] = trial_row['time']
+            all_strides.append(summary)
         except Exception as e:
             n_errors += 1
             if verbose:
@@ -90,33 +97,30 @@ def batch_process(obs_csv: Path, ps_csv: Path, trial_dir: Path,
 
     if not all_strides:
         save_outlier_report(output_dir / 'outlier_report.json', outlier_report)
-        print("No strides processed.")
         return {'n_strides': 0}
 
     long_df = pd.concat(all_strides, ignore_index=True)
+    peak_cols = [c for c in ANGLE_PEAK_COLS if c in long_df.columns]
+    long_df = long_df[[c for c in META_COLS if c in long_df.columns] + peak_cols]
 
-    meta_cols = ['subject_id', 'group', 'board', 'time', 'trial',
-                 'side', 'phase', 'stride_idx_in_trial', 'stance_side',
-                 'leg_length_mm', 'height_mm', 'step_length_mm', 'step_width_mm']
-    mos_cols = [c for c in long_df.columns if c not in meta_cols]
-    long_df = long_df[[c for c in meta_cols if c in long_df.columns] + mos_cols]
-
-    long_path = output_dir / 'mos_all_strides.csv'
+    long_path = output_dir / 'kinematics_all_strides.csv'
     long_df.to_csv(long_path, index=False)
     if verbose:
         print(f"\nSaved long-format CSV: {long_path}")
         print(f"  Rows: {len(long_df)}")
 
-    numeric_cols = [c for c in long_df.columns
-                    if c.startswith('mos_') or c.startswith('ap_') or c.startswith('ml_')
-                    or 'clearance' in c or c.startswith('cross_')]
+    agg = (
+        long_df.groupby(['subject_id', 'group', 'board', 'time', 'phase'])[peak_cols]
+        .mean()
+        .reset_index()
+    )
+    agg['n_strides'] = (
+        long_df.groupby(['subject_id', 'group', 'board', 'time', 'phase'])
+        .size()
+        .values
+    )
 
-    agg = long_df.groupby(
-        ['subject_id', 'group', 'board', 'time', 'phase'])[numeric_cols].mean().reset_index()
-    agg['n_strides'] = long_df.groupby(
-        ['subject_id', 'group', 'board', 'time', 'phase']).size().values
-
-    agg_path = output_dir / 'mos_subject_condition.csv'
+    agg_path = output_dir / 'kinematics_subject_condition.csv'
     agg.to_csv(agg_path, index=False)
     if verbose:
         print(f"Saved aggregated CSV: {agg_path}")
@@ -134,7 +138,7 @@ def batch_process(obs_csv: Path, ps_csv: Path, trial_dir: Path,
 
 
 def main():
-    p = argparse.ArgumentParser(description="Batch MoS analysis")
+    p = argparse.ArgumentParser(description="Batch joint angle peak export")
     p.add_argument('--obs-csv', type=Path, required=True)
     p.add_argument('--ps-csv', type=Path, required=True)
     p.add_argument('--trial-dir', type=Path, required=True)
@@ -152,20 +156,13 @@ def main():
             s, t = item.strip().split(':')
             filter_set.add((s.strip(), int(t)))
 
-    print(f"obs:        {args.obs_csv}")
-    print(f"ps:         {args.ps_csv}")
-    print(f"trial_dir:  {args.trial_dir}")
-    print(f"output_dir: {args.output_dir}")
-    print(f"Tier 1: spike={tier1['spike_threshold_mm_per_frame']} mm/fr, "
-          f"filter={tier1['filter_cutoff_hz']} Hz\n")
-
     result = batch_process(
         args.obs_csv, args.ps_csv, args.trial_dir, args.output_dir,
-        verbose=not args.quiet, filter_trials=filter_set, tier1=tier1)
-
-    print(f"\n{'='*60}")
-    print("BATCH MOS PROCESSING COMPLETE")
-    print(f"{'='*60}")
+        verbose=not args.quiet, filter_trials=filter_set, tier1=tier1,
+    )
+    print(f"\n{'=' * 60}")
+    print("BATCH KINEMATICS PEAKS COMPLETE")
+    print(f"{'=' * 60}")
     for k, v in result.items():
         if k != 'outlier_report':
             print(f"  {k}: {v}")

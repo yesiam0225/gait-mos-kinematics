@@ -5,7 +5,7 @@ Python tools for **sagittal-plane joint kinematics** and **margin of stability (
 ## Installation
 
 ```bash
-git clone https://github.com/gait-mos-kinematics/gait-mos-kinematics.git
+git clone https://github.com/yesiam0225/gait-mos-kinematics.git
 cd gait-mos-kinematics
 pip install -e .
 ```
@@ -33,7 +33,7 @@ Frame indices in `per_stride_data.csv` (`hs_start_frame`, `hs_end_frame`, `to_fr
 
 ## End-to-end pipeline
 
-This repo is the **kinematics + MoS stage** after [gait-spatiotemporal](https://github.com/gait-spatiotemporal/gait-spatiotemporal) and [marker-label](https://github.com/marker-label/marker-label):
+This repo is the **kinematics + MoS stage** after [gait-spatiotemporal](https://github.com/yesiam0225/gait-spatiotemporal) and [marker-label](https://github.com/yesiam0225/marker-label):
 
 ```text
 marker-label (gap-filled CSV + manifest)
@@ -41,7 +41,7 @@ marker-label (gap-filled CSV + manifest)
     → gait-mos-kinematics (this repo: ensemble, peaks, MoS)
 ```
 
-[marker-label](https://github.com/marker-label/marker-label) also ships an in-repo **`gait_analysis/`** module with the same MoS/kinematics batch scripts plus `visualize_mos.py` QC plots. Use **this package** for portable installs and joint peak CSVs; use marker-label `gait_analysis/` when you want MoS figure batching in the same repo as corrected trials.
+[marker-label](https://github.com/yesiam0225/marker-label) also ships an in-repo **`gait_analysis/`** module with the same MoS/kinematics batch scripts plus `visualize_mos.py` QC plots. Use **this package** for portable installs and joint peak CSVs; use marker-label `gait_analysis/` when you want MoS figure batching in the same repo as corrected trials.
 
 ### Main cohort example
 
@@ -212,11 +212,10 @@ mos_df = process_trial_mos(
 
 | Repository | Role |
 |------------|------|
-| [marker-label](https://github.com/marker-label/marker-label) | Marker labeling, gap fill, trial manifests, in-repo `gait_analysis/` MoS QC |
-| [gait-spatiotemporal](https://github.com/gait-spatiotemporal/gait-spatiotemporal) | IC/TO detection → `per_stride_data.csv`, `per_step_data.csv` |
-| [gait-events-vlm](https://github.com/gait-events-vlm/gait-events-vlm) | VLM-based IC/TO from foot-Z plots (QC / comparison) |
+| [marker-label](https://github.com/yesiam0225/marker-label) | Marker labeling, gap fill, trial manifests, in-repo `gait_analysis/` MoS QC |
+| [gait-spatiotemporal](https://github.com/yesiam0225/gait-spatiotemporal) | IC/TO detection → `per_stride_data.csv`, `per_step_data.csv` |
 
-Full batch workflow and output layout: [marker-label — Downstream gait analysis](https://github.com/marker-label/marker-label#downstream-gait-analysis).
+Full batch workflow and output layout: [marker-label — Downstream gait analysis](https://github.com/yesiam0225/marker-label#downstream-gait-analysis).
 
 ## License
 

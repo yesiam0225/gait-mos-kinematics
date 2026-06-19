@@ -1,6 +1,10 @@
 # Gait MoS & Kinematics
 
-Python tools for **sagittal-plane joint kinematics** and **margin of stability (MoS)** analysis during obstacle-crossing gait. Designed for full-body Plug-in Gait marker data and downstream SPM ensemble averaging.
+## Overview / Highlights
+
+**Problem:** Spatiotemporal events alone do not answer **how** the body moved over the obstacle—cohorts need **phase-aligned joint kinematics** (hip/knee/ankle) and **margin of stability (MoS)** on comparable time bases across strides, groups, and obstacle conditions.
+
+**Highlights:** Batch pipelines from gap-filled PiG CSVs + `per_stride_data.csv`: **sagittal joint angles** with ensemble mean±SD curves (SPM-style 0–100% gait cycle), **per-stride peak extraction**, and **MoS** (discrete summaries and time series). Handles manifest path variants, 0-based stride frame indices, and portable CLIs for the kinematics/MoS stage after [marker-label](https://github.com/yesiam0225/marker-label) and [gait-spatiotemporal](https://github.com/yesiam0225/gait-spatiotemporal).
 
 ## Installation
 
@@ -108,6 +112,16 @@ batch-kinematics-ensemble \
 Optional: `--filter-trials SUBJ01:5,SUBJ01:23` to process a subset.
 
 Also writes **`../peaks/peaks_per_stride.csv`** and **`peaks_subject_condition.csv`** relative to `--output-dir` (e.g. `ensemble_curves/` → sibling `peaks/`). These peaks include tier-2 Mahalanobis outlier rejection when enabled via CLI flags.
+
+**Portfolio example** (synthetic `Group 1` / `Group 2` demo curves):
+
+| Hip | Knee | Ankle |
+|-----|------|-------|
+| ![Hip ensemble demo](docs/assets/ensemble_hip_angle_demo.png) | ![Knee ensemble demo](docs/assets/ensemble_knee_angle_demo.png) | ![Ankle ensemble demo](docs/assets/ensemble_ankle_angle_demo.png) |
+
+*Illustrative approach-phase angle ensembles (mean ± 1 SD); no participant data.*
+
+Regenerate: `python examples/generate_demo_ensemble_plots.py` (see [examples/README.md](examples/README.md)).
 
 ### Joint angle peaks (discrete outcomes)
 

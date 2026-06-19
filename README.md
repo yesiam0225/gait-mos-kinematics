@@ -113,16 +113,6 @@ Optional: `--filter-trials SUBJ01:5,SUBJ01:23` to process a subset.
 
 Also writes **`../peaks/peaks_per_stride.csv`** and **`peaks_subject_condition.csv`** relative to `--output-dir` (e.g. `ensemble_curves/` → sibling `peaks/`). These peaks include tier-2 Mahalanobis outlier rejection when enabled via CLI flags.
 
-**Portfolio example** (synthetic `Group 1` / `Group 2` demo curves):
-
-| Hip | Knee | Ankle |
-|-----|------|-------|
-| ![Hip ensemble demo](docs/assets/ensemble_hip_angle_demo.png) | ![Knee ensemble demo](docs/assets/ensemble_knee_angle_demo.png) | ![Ankle ensemble demo](docs/assets/ensemble_ankle_angle_demo.png) |
-
-*Illustrative approach-phase angle ensembles (mean ± 1 SD); no participant data.*
-
-Regenerate: `python examples/generate_demo_ensemble_plots.py` (see [examples/README.md](examples/README.md)).
-
 ### Joint angle peaks (discrete outcomes)
 
 Per-stride max/min angle peaks and gait-cycle timing (`*_peak_flexion`, `*_peak_extension`, `*_pct`, `*_rom`):

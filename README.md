@@ -31,7 +31,7 @@ Batch scripts expect:
 | `per_stride_data.csv` | Per-stride events from spatiotemporal pipeline: `hs_start_frame`, `hs_end_frame`, `to_frame`, `phase`, `side`, `step_length_mm`, … |
 | Corrected marker CSVs | Full-body PiG marker trials (mm, 100 Hz) referenced by `csv_path` |
 
-Trial CSV paths in the manifest may use spaces (`SUBJ01 Trial 05_corrected.csv`) or underscores; the batch scripts resolve multiple naming conventions automatically.
+Trial CSV paths in the manifest may use spaces (`trial_corrected.csv`) or underscores; the batch scripts resolve multiple naming conventions automatically.
 
 Frame indices in `per_stride_data.csv` (`hs_start_frame`, `hs_end_frame`, `to_frame`, …) are **0-based row indices** into the trial CSV referenced by `csv_path`.
 
@@ -109,7 +109,7 @@ batch-kinematics-ensemble \
   --output-dir path/to/output/ensemble_curves/
 ```
 
-Optional: `--filter-trials SUBJ01:5,SUBJ01:23` to process a subset.
+Optional: `--filter-trials PARTICIPANT_A:1,PARTICIPANT_A:23` to process a subset.
 
 Also writes **`../peaks/peaks_per_stride.csv`** and **`peaks_subject_condition.csv`** relative to `--output-dir` (e.g. `ensemble_curves/` → sibling `peaks/`). These peaks include tier-2 Mahalanobis outlier rejection when enabled via CLI flags.
 
@@ -185,18 +185,18 @@ import pandas as pd
 strides = pd.read_csv("per_stride_data.csv")
 
 summary, curves = process_trial(
-    "SUBJ01_Trial_05_corrected.csv",
+    "path/to/trial_corrected.csv",
     strides,
-    subject_id="SUBJ01",
-    trial=5,
+    subject_id="PARTICIPANT_A",
+    trial=1,
     leg_length_mm=850.0,
 )
 
 mos_df = process_trial_mos(
-    "SUBJ01_Trial_05_corrected.csv",
+    "path/to/trial_corrected.csv",
     strides,
-    subject_id="SUBJ01",
-    trial=5,
+    subject_id="PARTICIPANT_A",
+    trial=1,
     leg_length_mm=850.0,
     height_mm=1700.0,
 )
